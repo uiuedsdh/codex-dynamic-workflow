@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Dynamic Workflow"
+  short_description: "Create, run, inspect, and continue project workflows"
+  default_prompt: "Use $codex-dynamic-workflow status to inspect the latest project workflow run."
