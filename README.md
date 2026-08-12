@@ -8,6 +8,46 @@
 
 `codex-dynamic-workflow` is a global Codex Skill for defining reusable project-local workflows as version-controlled YAML DAGs. It runs Codex headlessly, coordinates serial and parallel work, and exposes deterministic commands for starting runs, inspecting progress, retrieving results, and continuing the parent task.
 
+## Motivation and inspiration
+
+This project is inspired by the central idea behind dynamic workflows: move orchestration out of the main model's turn and into a deterministic runtime. Large agent tasks become difficult to manage when the main model must repeatedly decide what to run next and receive every intermediate result in its conversation context. As the number of workers and stages grows, orchestration consumes context, intermediate outputs compete for attention, and a long-running process becomes difficult to inspect or resume.
+
+The useful architectural separation is:
+
+- A deterministic runtime owns control flow, concurrency, barriers, loops, retries, and intermediate state.
+- Language-model agents are workers invoked only at the nodes that require reasoning or coding.
+- The main interactive agent starts the work, leaves the runtime to execute it, and later reads compact progress or terminal results.
+- A stable orchestration can be reviewed, versioned with the project, and reused instead of being reconstructed turn by turn.
+
+`codex-dynamic-workflow` applies those ideas to Codex, but it is not a Claude Code port, implementation, or compatibility layer. Claude Code Dynamic Workflows are described as generated JavaScript orchestration using primitives such as pipelines and parallel groups. This project deliberately uses a constrained, declarative YAML DAG and a deterministic Python runner that launches `codex exec` in headless mode. The narrower definition format trades arbitrary program expressiveness for validation, auditability, bounded expansion, persisted progress, and predictable Git integration.
+
+| Concern | This project's approach |
+| --- | --- |
+| Reusable definition | Project-owned YAML, prompts, and JSON Schemas committed under `.agents/codex-dynamic-workflows/` |
+| Runtime | A local Python process; no model is responsible for scheduling the DAG |
+| Agent execution | Independent `codex exec` calls with per-node model, sandbox, timeout, and retry settings |
+| Pipeline behavior | Dependencies allow each ready item to advance without waiting for unrelated work |
+| Parallel barriers | Explicit `barrier` nodes provide `all_success`, `all_terminal`, or `minimum_success` fan-in |
+| Dynamic work | Bounded `foreach` expansion and bounded condition-driven loops |
+| Intermediate state | Atomic state snapshots and append-only events outside the model context |
+| Completion handoff | `$codex-dynamic-workflow result` retrieves outputs; `$codex-dynamic-workflow continue` lets the main Codex agent actively continue a later turn |
+
+The project does not automatically wake a completed Codex conversation. Completion is intentionally pull-based: the user or main agent queries status or results and then continues the task explicitly.
+
+## Problems it is designed to solve
+
+The workflow layer is useful when the process is stable enough to encode and too large, parallel, or repetitive to coordinate reliably in a single agent turn. Typical examples include:
+
+- **Repository-wide audits:** fan out security, correctness, dependency, performance, or API checks by package or file; independently verify findings; then aggregate only validated results.
+- **Large migrations:** partition framework upgrades, API deprecations, mechanical refactors, or language migrations into isolated worktree lanes and merge reviewed changes explicitly.
+- **Implement-review-fix loops:** run an implementer, one or more structured verifiers, and a bounded fixer loop until a declared condition passes or the iteration budget is exhausted.
+- **Batch and long-tail cleanup:** discover a runtime-sized item list, process it with bounded `foreach` workers, retry transient failures, and retain per-item terminal state.
+- **Pipeline versus barrier workloads:** let fast items continue immediately through independent stages while using a barrier only when a later stage truly needs the complete set, a minimum quorum, or all terminal outcomes.
+- **Repeatable project procedures:** store release checks, compatibility verification, multi-package maintenance, or other fixed engineering playbooks with the repository so later Codex sessions can run the same reviewed process.
+- **Long-running headless work:** start a detached workflow, inspect DAG-only progress without loading prompts or model reasoning, and retrieve a compact structured result in a later turn.
+
+It is generally a poor fit for a one-step edit, an exploratory task that needs frequent human decisions, an unbounded autonomous loop, or a high-risk operation whose intermediate actions require manual approval. Those cases should remain in an interactive Codex turn or be split into smaller workflows with explicit checkpoints.
+
 ## Features
 
 - Serial and parallel DAG execution with explicit dependency barriers.
